@@ -30,12 +30,13 @@ import org.apache.comet.DataTypeSupport.{containsDuplicateFieldNames, isComplexT
 import org.apache.comet.serde.{CodegenDispatchFallback, CometExpressionSerde, CometTimeZone, Compatible, ExprOuterClass, Incompatible, SupportLevel, Unsupported}
 import org.apache.comet.serde.ExprOuterClass.Expr
 import org.apache.comet.serde.QueryPlanSerde.{evalModeToProto, exprToProtoInternal, serializeDataType}
-import org.apache.comet.shims.{CometExprShim, CometTypeShim}
+import org.apache.comet.shims.{CometExprShim, CometTypeShim, ShimSQLConf}
 
 object CometCast
     extends CometExpressionSerde[Cast]
     with CometExprShim
     with CometTypeShim
+    with ShimSQLConf
     with CodegenDispatchFallback {
 
   private[comet] val duplicateStructFieldNamesReason: String =
@@ -82,6 +83,13 @@ object CometCast
     SQLConf.get
       .getConfString("spark.sql.legacy.castComplexTypesToString.enabled", "false")
       .toBoolean
+
+  // Under `spark.sql.legacy.timeParserPolicy=LEGACY` Spark formats dates with
+  // `java.text.SimpleDateFormat`, which differs from the native cast for dates in the 1582
+  // calendar cutover gap, before year 1 and after year 9999.
+  private[comet] val legacyTimeParserPolicyDateToStringReason: String =
+    "Cast from DateType to StringType with spark.sql.legacy.timeParserPolicy=LEGACY " +
+      "is not supported"
 
   // Spark rounds the shortest decimal string form of the value (`Double.toString`) rather
   // than its binary expansion, and Comet's native cast reproduces that. `Double.toString`
@@ -371,6 +379,8 @@ object CometCast
       case DataTypes.ByteType | DataTypes.ShortType | DataTypes.IntegerType |
           DataTypes.LongType =>
         Compatible()
+      case DataTypes.DateType if SQLConf.get.legacyTimeParserPolicy == LEGACY =>
+        Unsupported(Some(legacyTimeParserPolicyDateToStringReason))
       case DataTypes.DateType => Compatible()
       case DataTypes.TimestampType => Compatible()
       case DataTypes.FloatType | DataTypes.DoubleType =>

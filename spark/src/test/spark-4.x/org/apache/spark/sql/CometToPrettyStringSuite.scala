@@ -96,4 +96,21 @@ class CometToPrettyStringSuite extends CometFuzzTestBase {
     }
   }
 
+  test("ToPrettyString on dates under the LEGACY time parser policy") {
+    withSQLConf(SQLConf.LEGACY_TIME_PARSER_POLICY.key -> "LEGACY") {
+      withTable("t") {
+        sql("CREATE TABLE t(d date) USING parquet")
+        sql(
+          "INSERT INTO t VALUES (DATE'2024-01-31'), (DATE'1582-10-10'), " +
+            "(make_date(10000, 1, 1)), (make_date(0, 1, 1)), (NULL)")
+        val table = spark.sessionState.catalog.lookupRelation(TableIdentifier("t"))
+        val prettyExpr = Alias(ToPrettyString(UnresolvedAttribute("d")), "pretty_d")()
+        val analyzed = spark.sessionState.analyzer.execute(Project(Seq(prettyExpr), table))
+        checkSparkAnswerAndFallbackReason(
+          Dataset.ofRows(spark, analyzed),
+          "spark.sql.legacy.timeParserPolicy=LEGACY")
+      }
+    }
+  }
+
 }

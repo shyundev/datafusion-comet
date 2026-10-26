@@ -103,10 +103,12 @@ across Spark 3.4, 3.5, 4.0, and 4.1. Three expression classes mix in
   `ParseToTimestamp` for `to_timestamp` / `to_timestamp_ntz`, `ParseToDate` for
   `to_date`, and Spark 4's `try_to_timestamp`)
 
-`Cast` between strings and date / timestamp also reads the policy via the default
-formatters but is tested separately by `CometNativeCastSuite` and is out of scope here.
+`Cast` from date to string also follows the policy, because it formats through the
+default `DateFormatter`. Under `LEGACY`, `CometCast` declines the native date to string
+cast, so the cast runs through the codegen dispatcher and `ToPrettyString` over a date
+falls back to Spark (`cast_date_to_string_legacy.sql`).
 
-**Comet status.** None of the native implementations consult
+**Comet status.** Apart from that cast, none of the native implementations consult
 `legacyTimeParserPolicy` directly. Comet instead uses native implementations only for
 policy-independent cases and routes policy-sensitive expressions through Spark's own
 expression code via the Arrow-direct codegen dispatcher. In particular,
