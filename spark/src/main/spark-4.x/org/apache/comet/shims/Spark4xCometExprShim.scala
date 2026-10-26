@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.{HllSketchAgg, HllUni
 import org.apache.spark.sql.catalyst.expressions.json.{JsonExpressionUtils, StructsToJsonEvaluator}
 import org.apache.spark.sql.catalyst.expressions.objects.{Invoke, StaticInvoke}
 import org.apache.spark.sql.catalyst.expressions.url.ParseUrlEvaluator
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
 
 import org.apache.comet.expressions.CometEvalMode
 import org.apache.comet.serde.{CometAggregateExpressionSerde, CometExpressionSerde, CometHllSketchAgg, CometHllSketchEstimate, CometHllUnion, CometHllUnionAgg, CometListAgg, CometMapSort, CometRandStr, CometToPrettyString}
@@ -82,7 +83,17 @@ trait Spark4xCometExprShim extends CometExprShim4x {
       case i: Invoke =>
         (i.targetObject, i.functionName, i.arguments) match {
           case (Literal(evaluator: StructsToJsonEvaluator, _), "evaluate", Seq(child)) =>
-            val toJson = StructsToJson(evaluator.options, child, evaluator.timeZoneId)
+            // Spark writes the field names of the input schema the evaluator was built with. They
+            // can differ in case from the child's, as when the optimizer pushes to_json through a
+            // UNION ALL, so the child is cast to that schema, which renames fields by position.
+            val input =
+              if (DataTypeUtils.equalsIgnoreNullability(child.dataType, evaluator.inputSchema) ||
+                !Cast.canCast(child.dataType, evaluator.inputSchema)) {
+                child
+              } else {
+                Cast(child, evaluator.inputSchema, evaluator.timeZoneId)
+              }
+            val toJson = StructsToJson(evaluator.options, input, evaluator.timeZoneId)
             val exprProto = exprToProtoInternal(toJson, inputs, binding)
             if (exprProto.isEmpty) {
               liftFallbackReasons(toJson, i)
